@@ -46,6 +46,8 @@ def main():
                 if name == '.git':
                     continue
                 src = os.path.join(dirpath, name)
+                if not os.path.isfile(src):
+                    continue
                 dst = os.path.join(target, os.path.relpath(src, source))
                 if os.path.exists(dst):
                     kept += 1

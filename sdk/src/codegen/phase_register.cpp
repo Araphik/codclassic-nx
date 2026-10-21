@@ -487,7 +487,7 @@ VoidResult registerEntryPoints(CodegenContext& ctx) {
       }
 
       if (resolvedName.empty()) {
-        REXCODEGEN_ERROR("Cannot resolve ordinal {} from {}", ordinal, lib_name);
+        REXCODEGEN_ERROR("Cannot resolve ordinal {} from {} (thunk 0x{:08X})", ordinal, lib_name, sym.address);
         resolvedName = fmt::format("sub_{:X}", sym.address);
         unresolvedCount++;
       }

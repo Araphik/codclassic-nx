@@ -919,6 +919,23 @@ std::optional<KernelState::RecompiledModuleInfo> KernelState::FindRecompiledModu
     if (info.guest_path == normalized)
       return info;
   }
+  // Fallback: modules loaded through a device path (e.g.
+  // \Device\Harddisk0\Partition1\foo.xdl) or a different mount alias
+  // still match a recompiled module registered under the same file name.
+  auto file_name = NormalizeGuestPath(rex::string::utf8_find_name_from_guest_path(guest_path));
+  const RecompiledModuleInfo* match = nullptr;
+  for (const auto& info : recompiled_modules_) {
+    auto info_name = NormalizeGuestPath(rex::string::utf8_find_name_from_guest_path(info.guest_path));
+    if (info_name == file_name) {
+      if (match) {
+        return std::nullopt;  // ambiguous: same file name registered twice
+      }
+      match = &info;
+    }
+  }
+  if (match) {
+    return *match;
+  }
   return std::nullopt;
 }
 

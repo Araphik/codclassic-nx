@@ -45,6 +45,15 @@ class DynamicLibrary {
   void* handle_ = nullptr;
 };
 
+#if REX_PLATFORM_SWITCH
+// Horizon has no dlopen: guest DLL modules (recompiled .xdl/.dll) are linked
+// statically into the NRO and published here under their shared_lib_name
+// (e.g. "codclassic_game_sp"). DynamicLibrary::Load() then resolves that name
+// against this registry instead of the file system. Call before the kernel
+// loads the module.
+void RegisterStaticLibrary(const char* lib_name, const char* symbol, void* address);
+#endif
+
 namespace lib_names {
 
 #if REX_PLATFORM_WIN32

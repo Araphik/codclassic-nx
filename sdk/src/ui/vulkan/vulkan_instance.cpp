@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -593,7 +594,32 @@ VkBool32 VulkanInstance::DebugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
     VkDebugUtilsMessageTypeFlagsEXT message_types,
     const VkDebugUtilsMessengerCallbackDataEXT* callback_data, [[maybe_unused]] void* user_data) {
+  /*
+   * Repeated messages are rate limited. The Switch driver reports "hit native submission pressure"
+   * once per frame when the GPU is the bottleneck; every warning is flushed to the SD card right
+   * away (flush_level = warn), from the GPU command thread: in Call of Duty Classic that was a
+   * quarter of that thread's time. A message is keyed by its first 48 characters (the variable
+   * numbers come later); the first 8 of each are logged, then only the 2^n-th ones.
+   */
+  uint32_t repeat_count = 0;
+  {
+    static std::mutex rate_mutex;
+    static std::unordered_map<std::string, uint32_t> rate_counts;
+    std::string key = callback_data->pMessage ? std::string(callback_data->pMessage).substr(0, 48)
+                                              : std::string();
+    key += std::to_string(callback_data->messageIdNumber);
+    std::lock_guard<std::mutex> lock(rate_mutex);
+    if (rate_counts.size() < 4096 || rate_counts.count(key)) {
+      repeat_count = ++rate_counts[key];
+    }
+  }
+  if (repeat_count > 8 && (repeat_count & (repeat_count - 1)) != 0) {
+    return VK_FALSE;
+  }
   std::ostringstream log_str;
+  if (repeat_count > 8) {
+    log_str << "[x" << repeat_count << "] ";
+  }
 
   log_str << "Vulkan " << vk::to_string(vk::DebugUtilsMessageSeverityFlagBitsEXT(message_severity))
           << " (" << vk::to_string(vk::DebugUtilsMessageTypeFlagsEXT(message_types)) << ", ID "

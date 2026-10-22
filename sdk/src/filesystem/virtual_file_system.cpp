@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <filesystem>
 #include <rex/filesystem/vfs.h>
 #include <rex/logging.h>
 #include <rex/string.h>
@@ -231,7 +232,21 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry, const std::string_view p
 
   if (entry) {
     if (entry->attributes() & kFileAttributeDirectory && is_non_directory) {
-      return X_STATUS_FILE_IS_A_DIRECTORY;
+      /*
+       * Call of Duty Classic (log 037): cache:\main\cache\last.svg, rewritten moments earlier,
+       * came back as a directory and loading the save failed. If the host says it is a plain file,
+       * the cached entry is what is wrong: fix its attributes instead of failing.
+       */
+      const auto* host_entry = dynamic_cast<const HostPathEntry*>(entry);
+      std::error_code ec;
+      if (host_entry && std::filesystem::is_regular_file(host_entry->host_path(), ec)) {
+        REXFS_WARN("OpenFile: '{}' cached as a directory but it is a file on the host; fixing", path);
+        entry->SetAttributes(kFileAttributeNormal);
+      } else {
+        REXFS_WARN("OpenFile: '{}' is a directory (host: {})", path,
+                   host_entry ? rex::path_to_utf8(host_entry->host_path()) : std::string("?"));
+        return X_STATUS_FILE_IS_A_DIRECTORY;
+      }
     }
 
     /*

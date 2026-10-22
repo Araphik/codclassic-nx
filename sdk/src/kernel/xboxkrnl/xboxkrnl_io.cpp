@@ -576,14 +576,17 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     if (extension == ".svg") {
-      REXKRNL_INFO("[svg] abrir '{}' acceso={:#x} disposicion={} accion={}", target_path,
-                   (uint32_t)desired_access, (uint32_t)creation_disposition, (uint32_t)file_action);
+      REXKRNL_INFO("[svg] abrir '{}' acceso={:#x} disposicion={} accion={} opciones={:#x}",
+                   target_path, (uint32_t)desired_access, (uint32_t)creation_disposition,
+                   (uint32_t)file_action, (uint32_t)create_options);
     }
   }
 
   *handle_out = handle;
   if (XFAILED(result)) {
-    REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
+    REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x} (acceso={:#x} disp={} opciones={:#x})",
+                        target_path, result, (uint32_t)desired_access,
+                        (uint32_t)creation_disposition, (uint32_t)create_options);
   } else {
     REXKRNL_IMPORT_RESULT("NtCreateFile", "{:#x} handle={:#x}", result, handle);
   }

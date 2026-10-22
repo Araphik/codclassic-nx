@@ -193,11 +193,18 @@ __asm__(".text\n"
         "    cmp  w7, #8\n"
         "    b.lo .Lrex_exc_pide\n"
         /*
-         * All taken: go back to the first one and wait. A thread stalled here is far
-         * less harmful than two writing to the same dump.
+         * All taken: do NOT wait here. While this thread is in the exception entry it
+         * holds the process's user-exception state in the kernel, and the threads that
+         * own the slots can only give them back through that same entry (the resume
+         * trap). Waiting deadlocked the game when a burst of faults (after the view
+         * mappings were evicted) filled all eight slots: one thread spun here forever and
+         * the eight owners sat at RexResumeTrap. Instead return to the faulting
+         * instruction with the frame untouched (only x2-x7 were used, and the kernel
+         * restores x0-x8 from the frame): it faults again and retries once the owners
+         * have left.
          */
-        "    mov  w7, wzr\n"
-        "    b    .Lrex_exc_pide\n"
+        "    mov  w0, wzr\n"
+        "    b    .Lrex_exc_end\n"
         ".Lrex_exc_cogida:\n"
         /*
          * This slot's dump, with the slot number in pad[0], which the resume branch

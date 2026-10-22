@@ -340,6 +340,48 @@ void UnmapChunkFromViews(State& s, const Chunk& c) {
     }
 }
 
+/*
+ * Horizon ran out of mapping resources (0xCE01, 2001-0103). Seen when loading the second level of
+ * Call of Duty Classic: chunks enter every 360 mirror they are touched through and never leave, and
+ * write watching splits the mappings page by page, so after one level the kernel had no room left
+ * and a page could no longer be mapped back after a write fault (the game then crashed on its next
+ * write there).
+ *
+ * Every (view, chunk) mapping is only a cache: the exception handler maps a chunk back into a view
+ * on the first access (RexGmFaultIn). So on exhaustion all of them are dropped except the one being
+ * worked on, and the operation is retried. The cost is a burst of faults while the working set maps
+ * itself back in.
+ */
+std::atomic<uint32_t> g_desalojos{0};
+
+constexpr bool IsOutOfResource(Result rc) {
+    return R_MODULE(rc) == Module_Kernel && (R_DESCRIPTION(rc) == KernelError_ResourceExhausted ||
+                                         R_DESCRIPTION(rc) == KernelError_OutOfResource ||
+                                         R_DESCRIPTION(rc) == KernelError_OutOfMemory);
+}
+
+void EvictViewMappings(State& s, size_t keep_view, size_t keep_chunk) {
+    const std::vector<std::pair<size_t, size_t>> mapped(s.view_mapped.begin(), s.view_mapped.end());
+    for (const auto& vm : mapped) {
+        if (vm.first == keep_view && vm.second == keep_chunk) continue;
+        auto it = s.chunks.find(vm.second);
+        if (it != s.chunks.end() && vm.first < s.views.size()) {
+            const Chunk& c = it->second;
+            const View& v = s.views[vm.first];
+            size_t lo, hi;
+            if (Intersect(c.offset, c.length, v.offset, v.length, &lo, &hi)) {
+                const size_t win_off = static_cast<size_t>(v.base - s.base) + (lo - v.offset);
+                uint8_t* src = static_cast<uint8_t*>(c.shadow) + (lo - c.offset);
+                UnmapWindowRange(s, win_off, src, hi - lo);
+            }
+        }
+        s.view_mapped.erase(vm);
+    }
+    g_desalojos.fetch_add(1, std::memory_order_relaxed);
+}
+
+constexpr size_t kNoView = ~size_t(0);
+
 void ReleaseChunk(const Chunk& c) {
     svcUnmapProcessCodeMemory(Proc(), reinterpret_cast<u64>(c.shadow),
                               reinterpret_cast<u64>(c.backing), c.length);
@@ -437,6 +479,8 @@ int RexGmModoProteccion(void) {
     }
 }
 
+uint32_t RexGmEvictions(void) { return g_desalojos.load(std::memory_order_relaxed); }
+
 uint32_t RexGmLastResult(void) {
     State& s = S();
     std::lock_guard<std::mutex> lock(s.mutex);
@@ -510,6 +554,11 @@ bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
         Result rc = shadow ? svcMapProcessCodeMemory(Proc(), reinterpret_cast<u64>(shadow),
                                                      reinterpret_cast<u64>(backing), tam)
                            : 0;
+        if (shadow && R_FAILED(rc) && IsOutOfResource(rc)) {
+            EvictViewMappings(s, kNoView, kNoView);
+            rc = svcMapProcessCodeMemory(Proc(), reinterpret_cast<u64>(shadow),
+                                         reinterpret_cast<u64>(backing), tam);
+        }
         virtmemUnlock();
 
         if (!shadow) {
@@ -571,6 +620,9 @@ bool RexGmFaultIn(uint64_t window_address) {
     Chunk* c = ChunkAt(s, off);
     if (!c) return false;                                       /* sin confirmar */
     if (s.view_mapped.count({vi, c->offset}) != 0) return false; /* ya estaba */
+    if (MapChunkIntoView(s, vi, *c)) return true;
+    if (!IsOutOfResource(s.last_result)) return false;
+    EvictViewMappings(s, kNoView, kNoView);
     return MapChunkIntoView(s, vi, *c);
 }
 
@@ -657,9 +709,14 @@ bool RexGmProtect(uint8_t* address, size_t length, RexGmAccess access, RexGmAcce
                      * remembers whether it works.
                      */
                     if (!ProtegerConPermisos(s.base + p, estaba)) {
-                        const Result rc =
+                        Result rc =
                             estaba ? svcUnmapProcessMemory(s.base + p, Proc(), src, kPageSize)
                                    : svcMapProcessMemory(s.base + p, Proc(), src, kPageSize);
+                        if (R_FAILED(rc) && IsOutOfResource(rc)) {
+                            EvictViewMappings(s, vi, c->offset);
+                            rc = estaba ? svcUnmapProcessMemory(s.base + p, Proc(), src, kPageSize)
+                                        : svcMapProcessMemory(s.base + p, Proc(), src, kPageSize);
+                        }
                         if (R_FAILED(rc)) {
                             s.last_result = rc;
                             return false;

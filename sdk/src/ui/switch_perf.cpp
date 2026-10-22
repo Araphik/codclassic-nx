@@ -65,6 +65,7 @@ size_t RexGmCommittedBytes(void);
 size_t RexGmMappedBytes(void);
 /* 0 = sin probar, 1 = permisos (paginas vigiladas legibles), 2 = desmapeo. */
 int RexGmModoProteccion(void);
+uint32_t RexGmEvictions(void);
 Result __real_threadCreate(Thread* t, ThreadFunc entry, void* arg, void* stack_mem,
                            size_t stack_sz, int prio, int cpuid);
 Result __real_threadClose(Thread* t);
@@ -389,7 +390,7 @@ void Report(u64 elapsed_ticks, u64 tick_freq, u64 counters_last[kCounterCount],
                "==== %.1f s | modo: %s | juego %.1f fps | CPU total %.0f%% (400%% = 4 nucleos) | fallos/s: "
                "lectura emulada %.0f, manejador SDK %.0f, reintento emulado %.0f, SEH %.0f, "
                "fisica confirmada %.0f, vistas %.0f | invitado %zu/%zu MB (respaldo/mapeado) | "
-               "limite de mapeo %llu/%llu MB, proceso %llu/%llu MB | "
+               "limite de mapeo %llu/%llu MB, proceso %llu/%llu MB, desalojos de vistas %u | "
                "muestras %zu | vigilancia: %s | samplers: %.0f nuevos/s, %.0f parones/s\n",
                seconds, mode, double(counters_now[0] - counters_last[0]) / seconds, total_cpu,
                double(counters_now[1] - counters_last[1]) / seconds,
@@ -399,7 +400,7 @@ void Report(u64 elapsed_ticks, u64 tick_freq, u64 counters_last[kCounterCount],
                double(counters_now[17] - counters_last[17]) / seconds,
                double(counters_now[18] - counters_last[18]) / seconds,
                RexGmCommittedBytes() >> 20, RexGmMappedBytes() >> 20,
-               (u64)lim_usado, (u64)lim_tope, (u64)proc_usado, (u64)proc_total, g_sample_count,
+               (u64)lim_usado, (u64)lim_tope, (u64)proc_usado, (u64)proc_total, RexGmEvictions(), g_sample_count,
                 (RexGmModoProteccion() == 1   ? "permisos (paginas legibles)"
                  : RexGmModoProteccion() == 2 ? "desmapeo (cada lectura falla)"
                                               : "sin probar"),

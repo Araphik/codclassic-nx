@@ -568,6 +568,19 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
     io_status_block->information = (uint32_t)file_action;
   }
 
+  // Save games: every successful open of a .svg is logged with its access and disposition, to see
+  // which code writes which save file (Call of Duty Classic, "Continue").
+  if (XSUCCEEDED(result) && target_path.size() > 4) {
+    std::string extension(target_path.substr(target_path.size() - 4));
+    for (char& c : extension) {
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (extension == ".svg") {
+      REXKRNL_INFO("[svg] abrir '{}' acceso={:#x} disposicion={} accion={}", target_path,
+                   (uint32_t)desired_access, (uint32_t)creation_disposition, (uint32_t)file_action);
+    }
+  }
+
   *handle_out = handle;
   if (XFAILED(result)) {
     REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);

@@ -1,3 +1,9 @@
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+#include <fmt/format.h>
 /**
  * @file        codegen/binary_view.cpp
  *
@@ -101,6 +107,22 @@ BinaryView BinaryView::fromModule(const runtime::Module& module) {
   REXCODEGEN_DEBUG("BinaryView: loaded {} sections, base=0x{:08X}, size=0x{:X}",
                    view.sections_.size(), view.baseAddress_, view.imageSize_);
 
+  // Debug aid: REXGLUE_DUMP_IMAGE=<dir> writes the loaded (decrypted, decompressed) image as
+  // <dir>/<base>.bin, so strings and data can be looked up by guest address.
+  if (const char* dump_dir = std::getenv("REXGLUE_DUMP_IMAGE")) {
+    std::vector<uint8_t> image(view.imageSize_, 0);
+    for (uint32_t off = 0; off < view.imageSize_; off += 4) {
+      if (const uint8_t* p = view.translate(view.baseAddress_ + off)) {
+        const uint32_t n = std::min<uint32_t>(4, view.imageSize_ - off);
+        std::memcpy(image.data() + off, p, n);
+      }
+    }
+    const std::string path = fmt::format("{}/{:08X}.bin", dump_dir, view.baseAddress_);
+    if (FILE* f = std::fopen(path.c_str(), "wb")) {
+      std::fwrite(image.data(), 1, image.size(), f);
+      std::fclose(f);
+    }
+  }
   return view;
 }
 

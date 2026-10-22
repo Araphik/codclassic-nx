@@ -21,6 +21,8 @@ static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only")
 #include <deque>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <vector>
 
 #include <pthread.h>
 #include <semaphore.h>
@@ -69,6 +71,53 @@ static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only")
 #endif
 
 namespace rex::thread {
+
+#if defined(__SWITCH__)
+/*
+ * Joining finished threads.
+ *
+ * A pthread is only joined in post_execution, i.e. when someone waits on the thread handle. A
+ * thread nobody waits for (the guest's own threads, which exit with ExitThread and are only closed)
+ * was never joined, and on Horizon an unjoined thread keeps its kernel thread object and its stack:
+ * 16 MB of heap per guest thread (XThread::Create asks for a 16 MB host stack). Call of Duty Classic
+ * starts threads on every level load and save, and after a few levels the process ran out:
+ * "CreateThread failed / Thread creation failed: C0000017", then failed guest commits (log 039).
+ *
+ * A thread that is about to exit queues itself here, and the next Thread::Create joins everything
+ * queued (each join waits at most for the last few instructions of that thread). It is the only
+ * joiner on Switch, so post_execution no longer joins. Threads stopped from outside
+ * (pthread_cancel) are not queued: cancellation is not reliable on Horizon and joining one that is
+ * still running would block.
+ */
+namespace {
+std::mutex& ReapMutex() {
+  static std::mutex m;
+  return m;
+}
+std::vector<pthread_t>& ReapList() {
+  static std::vector<pthread_t> v;
+  return v;
+}
+void QueueCurrentThreadForJoin() {
+  std::lock_guard<std::mutex> lock(ReapMutex());
+  ReapList().push_back(pthread_self());
+}
+void JoinFinishedThreads() {
+  std::vector<pthread_t> pending;
+  {
+    std::lock_guard<std::mutex> lock(ReapMutex());
+    pending.swap(ReapList());
+  }
+  for (pthread_t t : pending) {
+    if (pthread_equal(t, pthread_self())) {
+      QueueCurrentThreadForJoin();
+      continue;
+    }
+    pthread_join(t, nullptr);
+  }
+}
+}  // namespace
+#endif
 
 #if REX_PLATFORM_ANDROID
 // May be null if no dynamically loaded functions are required.
@@ -1083,6 +1132,9 @@ class PosixCondition<Thread> : public PosixConditionBase {
       cond_.notify_all();
     }
     if (is_current_thread) {
+#if defined(__SWITCH__)
+      QueueCurrentThreadForJoin();
+#endif
       pthread_exit(reinterpret_cast<void*>(exit_code));
     } else {
 #if REX_PLATFORM_ANDROID
@@ -1116,9 +1168,11 @@ class PosixCondition<Thread> : public PosixConditionBase {
   static void* ThreadStartRoutine(void* parameter);
   inline bool signaled() const override { return signaled_; }
   inline void post_execution() override {
+#if !defined(__SWITCH__)  // on Switch finished threads are joined by JoinFinishedThreads
     if (thread_) {
       pthread_join(thread_, nullptr);
     }
+#endif
 #if defined(__APPLE__)
     if (suspend_sem_ != SEM_FAILED) {
       sem_close(suspend_sem_);
@@ -1558,11 +1612,17 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
 
   current_thread_ = nullptr;
   current_thread_condition_ = nullptr;
+#if defined(__SWITCH__)
+  QueueCurrentThreadForJoin();
+#endif
   return nullptr;
 }
 
 std::unique_ptr<Thread> Thread::Create(CreationParameters params,
                                        std::function<void()> start_routine) {
+#if defined(__SWITCH__)
+  JoinFinishedThreads();
+#endif
   install_signal_handler(SignalType::kThreadSuspend);
   install_signal_handler(SignalType::kThreadUserCallback);
 #if REX_PLATFORM_ANDROID

@@ -146,6 +146,19 @@ X_STATUS HostPathEntry::RenameEntryInternal(const std::vector<std::string_view>&
 
   std::error_code ec;
   std::filesystem::rename(host_path_, new_host_path, ec);
+#if defined(__SWITCH__)
+  // FAT on Horizon does not replace an existing file on rename (POSIX and Windows with
+  // MOVEFILE_REPLACE_EXISTING do). Call of Duty Classic saves by writing temp.psw and renaming it
+  // over current.psw, so every save after the first failed. Replace a regular file, as on the 360.
+  if (ec && std::filesystem::is_regular_file(host_path_) &&
+      std::filesystem::is_regular_file(new_host_path)) {
+    std::error_code ec_remove;
+    if (std::filesystem::remove(new_host_path, ec_remove)) {
+      ec.clear();
+      std::filesystem::rename(host_path_, new_host_path, ec);
+    }
+  }
+#endif
   if (ec) {
     REXFS_ERROR("RenameEntryInternal: failed to rename '{}' to '{}': {}",
                 rex::path_to_utf8(host_path_), rex::path_to_utf8(new_host_path), ec.message());

@@ -189,6 +189,9 @@ uint32_t RexGmLastResult(void);
 /* Times every mirror mapping was dropped after Horizon ran out of mapping resources (0xCE01). */
 uint32_t RexGmEvictions(void);
 
+/* Number of committed chunks (each one costs Horizon several memory blocks). */
+size_t RexGmChunkCount(void);
+
 #define REX_GM_ERR_NOMEM    0xFFFF0001u  /* memalign of the backing store failed */
 #define REX_GM_ERR_NOCODEVA 0xFFFF0002u  /* no free space left in the code region */
 

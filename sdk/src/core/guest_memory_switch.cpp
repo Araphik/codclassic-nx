@@ -22,6 +22,8 @@ constexpr size_t kPageSize  = 0x1000;
  * page table.
  */
 constexpr size_t kBlockSize = 0x200000;
+/* Granularity of new chunks (see RexGmCommit). */
+constexpr size_t kCommitGranule = 0x100000;
 
 constexpr size_t AlignDown(size_t v, size_t a) { return v & ~(a - 1); }
 constexpr size_t AlignUp(size_t v, size_t a) { return (v + a - 1) & ~(a - 1); }
@@ -479,6 +481,12 @@ int RexGmModoProteccion(void) {
     }
 }
 
+size_t RexGmChunkCount(void) {
+    State& s = S();
+    std::lock_guard<std::mutex> lock(s.mutex);
+    return s.chunks.size();
+}
+
 uint32_t RexGmEvictions(void) { return g_desalojos.load(std::memory_order_relaxed); }
 
 uint32_t RexGmLastResult(void) {
@@ -532,11 +540,35 @@ bool RexGmCommit(size_t offset, size_t length, RexGmAccess access) {
             continue;
         }
 
-        /* Where the gap ends: the next chunk, or the end. */
-        size_t hueco_fin = end;
+        /*
+         * Where the gap ends: the next chunk, or the end.
+         *
+         * Rounded out to kCommitGranule on both sides, as far as the neighbouring chunks
+         * allow. Every chunk costs Horizon several memory blocks (its heap backing is
+         * split around it, plus its code alias and one mapping per view), and the kernel
+         * runs out of blocks long before it runs out of memory: page-sized commits by the
+         * thousand exhausted it while loading Call of Duty Classic's second level (0xCE01
+         * on every map, then a livelock of evictions). Committing a little more than
+         * asked is harmless: the guest heap still tracks what it allocated.
+         */
+        /* Never across the 4 GB boundary between the virtual and physical backing. */
+        const size_t region_ini = cur & ~size_t(0xFFFFFFFF);
+        const size_t region_fin = region_ini + 0x100000000ull;
+        size_t hueco_ini = AlignDown(cur, kCommitGranule);
+        if (hueco_ini < region_ini) hueco_ini = region_ini;
+        auto ant = s.chunks.lower_bound(cur);
+        if (ant != s.chunks.begin()) {
+            --ant;
+            const size_t ant_fin = ant->second.offset + ant->second.length;
+            if (ant_fin > hueco_ini) hueco_ini = ant_fin;
+        }
+        size_t hueco_fin = AlignUp(end, kCommitGranule);
+        if (hueco_fin > region_fin) hueco_fin = region_fin;
+        if (hueco_fin > s.size) hueco_fin = s.size;
         auto sig = s.chunks.upper_bound(cur);
         if (sig != s.chunks.end() && sig->second.offset < hueco_fin)
             hueco_fin = sig->second.offset;
+        cur = hueco_ini;
 
         const size_t tam = hueco_fin - cur;
         const size_t align = (tam >= kBlockSize && (cur & (kBlockSize - 1)) == 0)

@@ -21,6 +21,7 @@ static_assert(REX_PLATFORM_LINUX || REX_PLATFORM_MAC, "This file is POSIX-only")
 #include <deque>
 #include <limits>
 #include <memory>
+#include <condition_variable>
 #include <mutex>
 #include <vector>
 
@@ -83,38 +84,63 @@ namespace rex::thread {
  * starts threads on every level load and save, and after a few levels the process ran out:
  * "CreateThread failed / Thread creation failed: C0000017", then failed guest commits (log 039).
  *
- * A thread that is about to exit queues itself here, and the next Thread::Create joins everything
- * queued (each join waits at most for the last few instructions of that thread). It is the only
- * joiner on Switch, so post_execution no longer joins. Threads stopped from outside
- * (pthread_cancel) are not queued: cancellation is not reliable on Horizon and joining one that is
- * still running would block.
+ * A thread that is about to exit queues itself here, and a small reaper thread joins everything
+ * queued. The reaper holds no lock while it joins, so a join that has to wait for the last
+ * instructions of a thread (its TLS destructors, libnx's exit path) cannot deadlock with anyone; the
+ * first version joined from Thread::Create, in the creator, which may hold kernel locks the exiting
+ * thread still needs (log 043 froze on a level reload). It is the only joiner on Switch, so
+ * post_execution no longer joins. Threads stopped from outside (pthread_cancel) are not queued:
+ * cancellation is not reliable on Horizon and they may never exit.
  */
 namespace {
-std::mutex& ReapMutex() {
-  static std::mutex m;
-  return m;
+struct Reaper {
+  std::mutex m;
+  std::condition_variable cv;
+  std::vector<pthread_t> list;
+  bool started = false;
+};
+Reaper& GetReaper() {
+  static Reaper* r = new Reaper();  // never destroyed: threads may exit during shutdown
+  return *r;
 }
-std::vector<pthread_t>& ReapList() {
-  static std::vector<pthread_t> v;
-  return v;
+void* ReaperMain(void*) {
+  Reaper& r = GetReaper();
+  for (;;) {
+    std::vector<pthread_t> pending;
+    {
+      std::unique_lock<std::mutex> lock(r.m);
+      r.cv.wait(lock, [&r] { return !r.list.empty(); });
+      pending.swap(r.list);
+    }
+    for (pthread_t t : pending) {
+      pthread_join(t, nullptr);
+    }
+  }
+  return nullptr;
 }
 void QueueCurrentThreadForJoin() {
-  std::lock_guard<std::mutex> lock(ReapMutex());
-  ReapList().push_back(pthread_self());
-}
-void JoinFinishedThreads() {
-  std::vector<pthread_t> pending;
+  Reaper& r = GetReaper();
+  bool start = false;
   {
-    std::lock_guard<std::mutex> lock(ReapMutex());
-    pending.swap(ReapList());
-  }
-  for (pthread_t t : pending) {
-    if (pthread_equal(t, pthread_self())) {
-      QueueCurrentThreadForJoin();
-      continue;
+    std::lock_guard<std::mutex> lock(r.m);
+    r.list.push_back(pthread_self());
+    if (!r.started) {
+      r.started = true;
+      start = true;
     }
-    pthread_join(t, nullptr);
   }
+  if (start) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 64 * 1024);
+    pthread_t reaper;
+    if (pthread_create(&reaper, &attr, ReaperMain, nullptr) != 0) {
+      std::lock_guard<std::mutex> lock(r.m);
+      r.started = false;  // try again with the next exiting thread
+    }
+    pthread_attr_destroy(&attr);
+  }
+  r.cv.notify_one();
 }
 }  // namespace
 #endif
@@ -1168,7 +1194,7 @@ class PosixCondition<Thread> : public PosixConditionBase {
   static void* ThreadStartRoutine(void* parameter);
   inline bool signaled() const override { return signaled_; }
   inline void post_execution() override {
-#if !defined(__SWITCH__)  // on Switch finished threads are joined by JoinFinishedThreads
+#if !defined(__SWITCH__)  // on Switch finished threads are joined by the reaper thread
     if (thread_) {
       pthread_join(thread_, nullptr);
     }
@@ -1620,9 +1646,6 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
 
 std::unique_ptr<Thread> Thread::Create(CreationParameters params,
                                        std::function<void()> start_routine) {
-#if defined(__SWITCH__)
-  JoinFinishedThreads();
-#endif
   install_signal_handler(SignalType::kThreadSuspend);
   install_signal_handler(SignalType::kThreadUserCallback);
 #if REX_PLATFORM_ANDROID

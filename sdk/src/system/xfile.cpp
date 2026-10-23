@@ -292,7 +292,17 @@ X_STATUS XFile::SetLength(size_t length) {
 
 X_STATUS XFile::Rename(const std::filesystem::path& file_path) {
   std::lock_guard<std::mutex> lock(file_lock_);
+#if defined(__SWITCH__)
+  // Horizon refuses to rename an open file (Call of Duty Classic saves by writing temp.psw and
+  // renaming that same handle to current.psw: every save failed with
+  // GAME_SAVE_INSUFFICIENT_FREE_DISK). The host file is closed for the rename and reopened.
+  file_->ReleaseHostHandle();
+  const X_STATUS status = entry()->Rename(file_path);
+  file_->ReacquireHostHandle();
+  return status;
+#else
   return entry()->Rename(file_path);
+#endif
 }
 
 void XFile::RegisterIOCompletionPort(uint32_t key, object_ref<XIOCompletion> port) {

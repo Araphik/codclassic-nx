@@ -651,6 +651,29 @@ X_STATUS HostPathFile::Flush() {
   return X_STATUS_SUCCESS;
 }
 
+void HostPathFile::ReleaseHostHandle() {
+  if (file_handle_) {
+    file_handle_->Flush();
+    file_handle_.reset();
+  }
+}
+
+void HostPathFile::ReacquireHostHandle() {
+  if (file_handle_) {
+    return;
+  }
+  auto* e = static_cast<HostPathEntry*>(entry());
+  if (!e || (e->attributes() & kFileAttributeDirectory)) {
+    return;
+  }
+  // Opened again at the entry's current host path (the new name if the rename succeeded). Same
+  // access; existing contents are kept (OpenExisting does not truncate).
+  file_handle_ = rex::filesystem::FileHandle::OpenExisting(e->host_path(), file_access(), false);
+  if (!file_handle_) {
+    REXFS_ERROR("HostPathFile: could not reopen '{}' after rename", rex::path_to_utf8(e->host_path()));
+  }
+}
+
 bool HostPathFile::RellenarVentana(size_t byte_offset, size_t pedido, std::span<uint8_t> buffer,
                                    size_t* out_bytes_read, X_STATUS* out_status) {
   if (ventana_.size() != ventana_tam_) {

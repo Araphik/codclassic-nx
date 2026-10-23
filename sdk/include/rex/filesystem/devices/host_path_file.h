@@ -87,6 +87,8 @@ class HostPathFile : public File {
                      size_t* out_bytes_written) override;
   X_STATUS SetLength(size_t length) override;
   X_STATUS Flush() override;
+  void ReleaseHostHandle() override;
+  void ReacquireHostHandle() override;
 
  private:
   /*

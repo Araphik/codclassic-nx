@@ -10,6 +10,9 @@
  */
 
 #include <rex/filesystem/devices/host_path_entry.h>
+#include <rex/filesystem/host_write_hook.h>
+
+#include <atomic>
 #include <rex/filesystem/devices/host_path_file.h>
 
 #include <rex/filesystem.h>
@@ -104,6 +107,18 @@ bool HostPathEntry::Truncate() {
   return true;
 }
 
+namespace {
+std::atomic<HostWriteHook> g_host_write_hook{nullptr};
+}  // namespace
+
+void SetHostWriteHook(HostWriteHook hook) { g_host_write_hook.store(hook); }
+
+void NotifyHostWrite(const std::filesystem::path& changed) {
+  if (auto hook = g_host_write_hook.load()) {
+    hook(changed);
+  }
+}
+
 std::unique_ptr<Entry> HostPathEntry::CreateEntryInternal(const std::string_view name,
                                                           uint32_t attributes) {
   auto full_path = host_path_ / rex::to_path(name);
@@ -122,6 +137,7 @@ std::unique_ptr<Entry> HostPathEntry::CreateEntryInternal(const std::string_view
   if (!rex::filesystem::GetInfo(full_path, &file_info)) {
     return nullptr;
   }
+  NotifyHostWrite(full_path);
   return std::unique_ptr<Entry>(HostPathEntry::Create(device_, this, full_path, file_info));
 }
 
@@ -131,10 +147,15 @@ bool HostPathEntry::DeleteEntryInternal(Entry* entry) {
   if (entry->attributes() & kFileAttributeDirectory) {
     // Delete entire directory and contents.
     auto removed = std::filesystem::remove_all(full_path, ec);
-    return removed >= 1 && removed != static_cast<std::uintmax_t>(-1);
+    const bool ok = removed >= 1 && removed != static_cast<std::uintmax_t>(-1);
+    if (ok) NotifyHostWrite(full_path);
+    return ok;
   } else {
     // Delete file.
-    return !std::filesystem::is_directory(full_path) && std::filesystem::remove(full_path, ec);
+    const bool ok =
+        !std::filesystem::is_directory(full_path) && std::filesystem::remove(full_path, ec);
+    if (ok) NotifyHostWrite(full_path);
+    return ok;
   }
 }
 
@@ -166,6 +187,7 @@ X_STATUS HostPathEntry::RenameEntryInternal(const std::vector<std::string_view>&
   }
 
   host_path_ = new_host_path;
+  NotifyHostWrite(new_host_path);
   return X_STATUS_SUCCESS;
 }
 

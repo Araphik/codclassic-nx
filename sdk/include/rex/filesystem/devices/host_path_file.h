@@ -144,6 +144,7 @@ class HostPathFile : public File {
   uint32_t ventana_aciertos_ = 0;
   bool ventana_activa_ = false;
   bool ventana_contada_ = false;
+  bool modified_ = false;  // written or resized: NotifyHostWrite when closed
   // File id inside the RAM cache (0 = this file is not cached). See
   // nfsmw_io_cache_mb.
   uint32_t cache_id_ = 0;

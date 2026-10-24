@@ -11,6 +11,7 @@
 
 #include <rex/filesystem/devices/host_path_entry.h>
 #include <rex/filesystem/devices/host_path_file.h>
+#include <rex/filesystem/host_write_hook.h>
 
 #include <algorithm>
 #include <atomic>
@@ -634,6 +635,12 @@ HostPathFile::~HostPathFile() {
   if (ventana_contada_) {
     g_ventanas_vivas.fetch_sub(1, std::memory_order_relaxed);
   }
+  if (modified_) {
+    // Close the host file first: a Horizon save data file system cannot be committed while a file
+    // in it is open for writing.
+    file_handle_.reset();
+    NotifyHostWrite(static_cast<HostPathEntry*>(entry())->host_path());
+  }
 }
 
 void HostPathFile::Destroy() {
@@ -873,6 +880,7 @@ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer, size_t byte_of
   ventana_activa_ = false;
   ventana_bytes_ = 0;
 
+  modified_ = true;
   if (file_handle_->Write(byte_offset, buffer.data(), buffer.size(), out_bytes_written)) {
     return X_STATUS_SUCCESS;
   } else {
@@ -891,6 +899,7 @@ X_STATUS HostPathFile::SetLength(size_t length) {
   ventana_activa_ = false;
   ventana_bytes_ = 0;
 
+  modified_ = true;
   if (file_handle_->SetLength(length)) {
     return X_STATUS_SUCCESS;
   } else {

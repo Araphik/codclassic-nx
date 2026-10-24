@@ -27,6 +27,7 @@
 #include <rex/system/xam/content_device.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xfile.h>
+#include <rex/filesystem/host_write_hook.h>
 #include <rex/system/xobject.h>
 
 /*
@@ -515,6 +516,7 @@ X_RESULT ContentManager::CloseContent(const std::string_view root_name) {
   REXSYS_INFO("[guardado] cerrar «{}» (raiz {}) en {} -> {}", nombre, root_name,
               rex::path_to_utf8(ruta), QueHayDentro(ruta));
   CopiaParaElUsuario(nombre, ruta);
+  rex::filesystem::NotifyHostWrite(ruta);
   return X_ERROR_SUCCESS;
 }
 
@@ -547,6 +549,7 @@ X_RESULT ContentManager::SetContentThumbnail(uint64_t xuid, const XCONTENT_AGGRE
     auto file = rex::filesystem::OpenFile(thumb_path, "wb");
     fwrite(buffer.data(), 1, buffer.size(), file);
     fclose(file);
+    rex::filesystem::NotifyHostWrite(thumb_path);
     return X_ERROR_SUCCESS;
   } else {
     return X_ERROR_FILE_NOT_FOUND;
@@ -575,6 +578,7 @@ X_RESULT ContentManager::DeleteContent(uint64_t xuid, const XCONTENT_AGGREGATE_D
   bool header_removed = std::filesystem::remove(header_path, ec2);
 
   if (dir_removed > 0 || header_removed) {
+    rex::filesystem::NotifyHostWrite(package_path);
     return X_ERROR_SUCCESS;
   }
   return X_ERROR_FILE_NOT_FOUND;
@@ -624,6 +628,7 @@ X_RESULT ContentManager::UnmountAndDeleteContent(uint64_t xuid,
   bool header_removed = std::filesystem::remove(header_path, ec2);
 
   if (dir_removed > 0 || header_removed) {
+    rex::filesystem::NotifyHostWrite(package_path);
     return X_ERROR_SUCCESS;
   }
   return X_ERROR_FILE_NOT_FOUND;

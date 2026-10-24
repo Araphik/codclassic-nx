@@ -69,7 +69,10 @@ KernelState::KernelState(Runtime* emulator)
   user_profile_->set_kernel_state(this);
 
   auto user_data_root = emulator_->user_data_root();
-  if (!user_data_root.empty()) {
+  // A Horizon device path ("save:/...", "sdmc:/...") is already absolute; std::filesystem only knows
+  // paths that start with '/', and would prepend the current directory to it.
+  if (!user_data_root.empty() &&
+      rex::path_to_utf8(user_data_root).find(":/") == std::string::npos) {
     user_data_root = std::filesystem::absolute(user_data_root);
   }
   content_manager_ = std::make_unique<xam::ContentManager>(this, user_data_root);

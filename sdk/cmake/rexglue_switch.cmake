@@ -116,7 +116,7 @@ function(rexglue_switch_configure_target target_name)
 endfunction()
 
 function(rexglue_switch_add_nro target_name)
-    cmake_parse_arguments(ARG "" "NAME;AUTHOR;VERSION;ICON" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "NAME;AUTHOR;VERSION;ICON;SAVE_DATA_SIZE;SAVE_DATA_JOURNAL_SIZE" "" ${ARGN})
     if(NOT ARG_NAME)
         set(ARG_NAME "${target_name}")
     endif()
@@ -137,9 +137,20 @@ function(rexglue_switch_add_nro target_name)
     find_program(REXGLUE_ELF2NRO elf2nro HINTS "${DEVKITPRO}/tools/bin" NO_DEFAULT_PATH REQUIRED)
 
     set(_dir "$<TARGET_FILE_DIR:${target_name}>")
+    # Optional account save data in the NACP (used by forwarders/installed builds of the NRO).
+    set(_nacp_save)
+    if(ARG_SAVE_DATA_SIZE)
+        if(NOT ARG_SAVE_DATA_JOURNAL_SIZE)
+            set(ARG_SAVE_DATA_JOURNAL_SIZE "${ARG_SAVE_DATA_SIZE}")
+        endif()
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set(_nacp_save COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/nacp_save_data.py"
+            "${_dir}/${target_name}.nacp" "${ARG_SAVE_DATA_SIZE}" "${ARG_SAVE_DATA_JOURNAL_SIZE}")
+    endif()
     add_custom_command(TARGET ${target_name} POST_BUILD
         COMMAND "${REXGLUE_NACPTOOL}" --create "${ARG_NAME}" "${ARG_AUTHOR}" "${ARG_VERSION}"
             "${_dir}/${target_name}.nacp"
+        ${_nacp_save}
         COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${target_name}>"
             "${_dir}/${target_name}.stripped.elf"
         COMMAND "${CMAKE_STRIP}" --strip-all "${_dir}/${target_name}.stripped.elf"

@@ -37,3 +37,24 @@ __pycache__/
 *.pyc
 .vs/
 .vscode/
+
+# --- Call of Duty Classic (codclassic/) ---------------------------------------
+# Nothing from the game: its package and files, the code generated from them, the builds, the
+# localization outputs (they contain the game's strings and fonts) and the icon art.
+codclassic/game/
+codclassic/app/generated/
+codclassic/app/out/
+codclassic/app/icon.*
+codclassic/app/codegen.log
+codclassic/app/ordinal_map.txt
+codclassic/localization/ru/
+codclassic/localization/out/
+codclassic/localization/dist/
+*.xdl
+*.pk3
+*.dds
+*.dat
+*.svg
+*.psw
+*.ff
+*.iwd

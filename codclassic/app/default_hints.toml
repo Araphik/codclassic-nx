@@ -1,0 +1,12 @@
+# Function hints for default.xex (Call of Duty Classic SP)
+# Guest CRT setjmp/longjmp: Com_Error(ERR_DROP) longjmps back to the frame loop. Recompiled as plain
+# code, longjmp just returned and Com_Error fell through into the next trap case (crash on a
+# missing save, log 037). With these the codegen emits ppc_setjmp/ppc_longjmp.
+setjmp_address = 0x821F0260
+longjmp_address = 0x821EFF40
+[functions]
+0x8210A370 = { end = 0x8210A8E0 }
+0x8213FA10 = {}
+0x8213F088 = {}
+0x821EF3B0 = {}
+0x8208BDF8 = {}

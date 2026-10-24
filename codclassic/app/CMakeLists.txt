@@ -71,7 +71,7 @@ if(REXGLUE_PLATFORM_SWITCH)
         set_source_files_properties("${obj}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
         target_sources(codclassic PRIVATE "${obj}")
     endforeach()
-    target_sources(codclassic PRIVATE src/static_modules_switch.cpp)
+    target_sources(codclassic PRIVATE src/static_modules_switch.cpp src/codclassic_savedata_switch.cpp)
     # codclassic_guards.cpp asks the Switch guest-memory layer what the exception handler would do.
     target_include_directories(codclassic_recomp PRIVATE "${REXSDK_DIR}/src/core")
 
@@ -96,5 +96,7 @@ if(REXGLUE_PLATFORM_SWITCH)
         NAME "Call of Duty Classic"
         AUTHOR "ReXGlue port"
         VERSION "0.1.0"
+        SAVE_DATA_SIZE 0x4000000          # 64 MB account save data for installed builds
+        SAVE_DATA_JOURNAL_SIZE 0x2000000  # (codclassic_savedata_switch.cpp)
         ${CODCLASSIC_ICON_ARG})
 endif()

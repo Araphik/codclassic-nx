@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <string>
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
@@ -15,6 +16,12 @@
 #include <rex/platform.h>
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
+
+#if REX_PLATFORM_SWITCH
+// codclassic_savedata_switch.cpp
+std::filesystem::path CodclassicUserDataRoot(const std::filesystem::path& sd_root);
+const std::string& CodclassicSaveDataStatus();
+#endif
 
 class CodclassicApp : public rex::ReXApp {
  public:
@@ -39,6 +46,10 @@ class CodclassicApp : public rex::ReXApp {
         paths.game_data_root = folder / "game_root";
       }
     }
+#if REX_PLATFORM_SWITCH
+    // Installed as its own title: saves in the console's save data (visible to DBI and others).
+    paths.user_data_root = CodclassicUserDataRoot(paths.user_data_root);
+#endif
     user_data_root_ = paths.user_data_root;
   }
 
@@ -46,6 +57,11 @@ class CodclassicApp : public rex::ReXApp {
   // (--gpu_plugin=xenos --license_mask=1 [--mnk_mode=true]). Only applied when
   // nobody set them explicitly, so codclassic.toml and arguments still win.
   void OnPostInitLogging() override {
+#if REX_PLATFORM_SWITCH
+    if (!CodclassicSaveDataStatus().empty()) {
+      REXLOG_INFO("{}", CodclassicSaveDataStatus());
+    }
+#endif
     SetIfDefault("gpu_plugin", "xenos");
     SetIfDefault("license_mask", "1");  // full game, not the XBLA trial
 #if REX_PLATFORM_SWITCH

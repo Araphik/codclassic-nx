@@ -17,6 +17,7 @@
 
 #include <switch.h>
 
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <mutex>
@@ -92,15 +93,26 @@ bool OwnTitle(u64* out_id) {
   return own;
 }
 
+// The user whose save data is used. Launched with a user already chosen (a NACP that asks for one at
+// startup) that user is taken; otherwise the system's "Select a user" screen is shown, as games and
+// other ports do. Forwarders made with Sphaira do not ask for a user at startup, so in practice the
+// screen comes from here.
 bool PickUser(AccountUid* uid) {
   if (R_FAILED(accountInitialize(AccountServiceType_Application))) {
+    Note("codclassic: account service unavailable");
     return false;
   }
   bool ok = R_SUCCEEDED(accountGetPreselectedUser(uid)) && accountUidIsValid(uid);
-  if (!ok) {
-    ok = R_SUCCEEDED(accountGetLastOpenedUser(uid)) && accountUidIsValid(uid);
-  }
   accountExit();
+  if (ok) {
+    return true;
+  }
+  PselUserSelectionSettings settings{};
+  const Result rc = pselShowUserSelector(uid, &settings);
+  ok = R_SUCCEEDED(rc) && accountUidIsValid(uid);
+  if (!ok) {
+    Note("codclassic: user selection cancelled or failed (0x{:X})", rc);
+  }
   return ok;
 }
 
@@ -161,8 +173,24 @@ void Migrate(const std::filesystem::path& sd_root, const std::filesystem::path& 
 
 }  // namespace
 
-// Returns the user data root to use: the mounted save data, or `sd_root` unchanged.
+namespace {
+std::filesystem::path PickRoot(const std::filesystem::path& sd_root);
+}
+
+// Returns the user data root to use: the mounted save data, or `sd_root` unchanged. What happened
+// is also written next to the NRO, in saves_status.txt, to be read without digging through logs.
 std::filesystem::path CodclassicUserDataRoot(const std::filesystem::path& sd_root) {
+  const std::filesystem::path root = PickRoot(sd_root);
+  if (FILE* f = std::fopen((sd_root.parent_path() / "saves_status.txt").string().c_str(), "w")) {
+    std::fputs(g_status.c_str(), f);
+    std::fputs("\n", f);
+    std::fclose(f);
+  }
+  return root;
+}
+
+namespace {
+std::filesystem::path PickRoot(const std::filesystem::path& sd_root) {
   u64 app_id = 0;
   if (!OwnTitle(&app_id)) {
     Note("codclassic: running under title {:016X} (not an installed codclassic): saves on SD",
@@ -190,5 +218,6 @@ std::filesystem::path CodclassicUserDataRoot(const std::filesystem::path& sd_roo
               uid.uid[1], uid.uid[0]);
   return save_root;
 }
+}  // namespace
 
 const std::string& CodclassicSaveDataStatus() { return g_status; }

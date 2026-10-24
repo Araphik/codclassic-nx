@@ -59,38 +59,41 @@ void CommitOnWrite(const std::filesystem::path& changed) {
   }
 }
 
+// Our own title: an application installed for the port (Sphaira and other forwarder tools give it an
+// ID outside the 0100xxxxxxxxxxxx range of Nintendo's titles: e.g. 03DB12780BD84000), or one whose
+// control data carries our name. A retail game used for a title override never qualifies.
 bool OwnTitle(u64* out_id) {
   u64 id = 0;
   if (R_FAILED(svcGetInfo(&id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) || id == 0) {
+    *out_id = 0;
     return false;
   }
-  if (R_FAILED(nsInitialize())) {
-    return false;
-  }
-  auto* data = new NsApplicationControlData();
-  u64 size = 0;
-  bool own = false;
-  if (R_SUCCEEDED(nsGetApplicationControlData(NsApplicationControlSource_Storage, id, data,
-                                              sizeof(*data), &size)) &&
-      size >= sizeof(data->nacp)) {
-    NacpLanguageEntry* entry = nullptr;
-    if (R_SUCCEEDED(nacpGetLanguageEntry(&data->nacp, &entry)) && entry) {
-      own = std::strncmp(entry->name, kTitleName, sizeof(entry->name)) == 0;
-    }
-    if (!own) {
-      // Any language entry with the name counts (forwarder tools may fill only some of them).
+  *out_id = id;
+  const bool retail_range = (id >> 56) == 0x01;
+  bool named = false;
+  if (R_SUCCEEDED(nsInitialize())) {
+    auto* data = new NsApplicationControlData();
+    u64 size = 0;
+    const Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, id, data,
+                                                  sizeof(*data), &size);
+    if (R_SUCCEEDED(rc) && size >= sizeof(data->nacp)) {
       for (const auto& lang : data->nacp.lang) {
         if (std::strncmp(lang.name, kTitleName, sizeof(lang.name)) == 0) {
-          own = true;
+          named = true;
           break;
         }
       }
+      if (!named) {
+        Note("codclassic: title {:016X} is named \"{:.{}s}\"", id, data->nacp.lang[0].name,
+             sizeof(data->nacp.lang[0].name));
+      }
+    } else {
+      Note("codclassic: no control data for {:016X} (0x{:X})", id, rc);
     }
+    delete data;
+    nsExit();
   }
-  delete data;
-  nsExit();
-  *out_id = id;
-  return own;
+  return named || !retail_range;
 }
 
 // The user whose save data is used. Launched with a user already chosen (a NACP that asks for one at

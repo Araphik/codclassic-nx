@@ -21,6 +21,10 @@
 
 #include <algorithm>
 
+#include <cstring>
+#include <set>
+
+#include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
 
@@ -29,6 +33,11 @@ extern "C" REX_FUNC(__imp__sub_8708F348);
 extern "C" REX_FUNC(__imp__sub_870927D8);
 extern "C" REX_FUNC(__imp__sub_870917B0);
 extern "C" REX_FUNC(__imp__sub_87091AA0);
+extern "C" REX_FUNC(__imp__sub_87091928);  // ConnectPaths(ent): undoes that entity's cuts
+extern "C" REX_FUNC(__imp__sub_8704B750);  // save loader for one entity's cut chain
+
+REXCVAR_DEFINE_INT32(codclassic_path_cut_limit, 400, "Call of Duty Classic",
+                     "Undo the path cuts of an entity that cuts more links than this (0 = no limit)");
 
 namespace {
 // lis r11,-30929 ; addi r31,r11,21856  ->  0x872F5560; the pool pointer is at +4000.
@@ -38,6 +47,7 @@ constexpr uint32_t kEntries = 8192;
 uint32_t g_pool = 0;  // the pool this file allocated (kEntries entries)
 uint32_t g_cap = 0;   // entries the free list has been given so far
 uint32_t g_cuts = 0;
+std::set<uint32_t> g_neutral;  // gentities whose cuts are neutralised (see sub_87091AA0)
 
 // Before either original initialiser: allocate the large pool if there is none yet.
 void PreparePool(PPCContext& ctx, uint8_t* base) {
@@ -55,6 +65,7 @@ void PreparePool(PPCContext& ctx, uint8_t* base) {
   // The original builds a free list of the first 2048 entries.
   g_cap = kOriginalEntries;
   g_cuts = 0;
+  g_neutral.clear();
 }
 }  // namespace
 
@@ -106,12 +117,91 @@ REX_HOOK_RAW(sub_870917B0) {
   __imp__sub_870917B0(ctx, base);
 }
 
+// Path cuts per entity. Dawnville cuts about 3500 links where the 360's pool holds 2048, and two
+// entities alone cut 500 and 1104. With that many links gone the friendlies cannot walk to the
+// French car at the end of the level: getToNode() loops until Foley, Moody and Elder reach their
+// nodes, the car never arrives and the "get in the car" trigger never appears (softlock).
+//
+// Until the cause of the over-cutting is found, the cuts of an entity that cuts more than
+// codclassic_path_cut_limit links are neutralised: its chain of pool entries is kept exactly as the
+// game built it (the save game stores the pool entries by index and the loader expects the same
+// chains, so removing them would break every save), but the "disconnected" counter of each of its
+// links (u8 at link + 2) is decremented, so the AI can use those links again. The counter goes back
+// up when the game reconnects the entity (sub_87091928), and the save loader (sub_8704B750), which
+// increments the counters of the chains it restores, is followed by the same decrement.
+namespace {
+constexpr uint32_t kNodes = 0x8710B470;  // path nodes, 116 bytes each (sub_8708D930)
+
+// Adds delta to the disconnect counter of every link cut by `ent`.
+void AdjustLinks(uint8_t* base, uint32_t ent, int delta) {
+  const uint32_t pool = REX_LOAD_U32(kPoolPtr);
+  const uint32_t head = REX_LOAD_U16(ent + 698);
+  if (pool == 0 || head == 0) {
+    return;
+  }
+  uint32_t e = head;
+  for (uint32_t guard = 0; guard < kEntries; ++guard) {
+    const uint32_t entry = pool + 8 * e;
+    const uint32_t node = kNodes + 116 * REX_LOAD_U16(entry + 0);
+    const uint32_t target = REX_LOAD_U16(entry + 2);
+    const uint32_t links = REX_LOAD_U32(node + 88);
+    const int32_t count = static_cast<int16_t>(REX_LOAD_U16(node + 86));
+    for (int32_t i = count - 1; i >= 0; --i) {
+      const uint32_t link = links + 12 * i;
+      if (REX_LOAD_U16(link) == target) {
+        const int v = static_cast<int>(REX_LOAD_U8(link + 2)) + delta;
+        REX_STORE_U8(link + 2, static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v)));
+        break;
+      }
+    }
+    e = REX_LOAD_U16(entry + 6);
+    if (e == head || e == 0) {
+      break;
+    }
+  }
+}
+}  // namespace
+
 REX_HOOK_RAW(sub_87091AA0) {
   const uint32_t ent = ctx.r3.u32;
   const uint32_t before = g_cuts;
   __imp__sub_87091AA0(ctx, base);
-  if (g_cuts - before >= 64) {
-    REXLOG_INFO("codclassic: gentity {:08X} disconnected {} path links (total {})", ent,
-                g_cuts - before, g_cuts);
+  const uint32_t cut = g_cuts - before;
+  if (cut >= 64) {
+    auto f = [&](uint32_t off) {
+      const uint32_t u = REX_LOAD_U32(ent + off);
+      float v;
+      std::memcpy(&v, &u, 4);
+      return v;
+    };
+    REXLOG_INFO(
+        "codclassic: gentity {:08X} (num {}, bmodel {}, contents {:08X}) cut {} path links (total {}); "
+        "abs ({:.0f} {:.0f} {:.0f})-({:.0f} {:.0f} {:.0f}) origin ({:.0f} {:.0f} {:.0f})",
+        ent, REX_LOAD_U16(ent + 6), REX_LOAD_U32(ent + 168), REX_LOAD_U32(ent + 196), cut, g_cuts,
+        f(200), f(204), f(208), f(212), f(216), f(220), f(224), f(228), f(232));
+  }
+  const int32_t limit = REXCVAR_GET(codclassic_path_cut_limit);
+  if (limit > 0 && cut > static_cast<uint32_t>(limit) && g_neutral.insert(ent).second) {
+    AdjustLinks(base, ent, -1);
+    REXLOG_WARN("codclassic: gentity {:08X} cut {} path links (limit {}): cuts neutralised", ent,
+                cut, limit);
+  }
+}
+
+// ConnectPaths(ent): restore the counters first so that its own decrement leaves them right.
+REX_HOOK_RAW(sub_87091928) {
+  const uint32_t ent = ctx.r3.u32;
+  if (g_neutral.erase(ent)) {
+    AdjustLinks(base, ent, +1);
+  }
+  __imp__sub_87091928(ctx, base);
+}
+
+// Save loader for one entity's chain: it increments the counters of the links it restores.
+REX_HOOK_RAW(sub_8704B750) {
+  const uint32_t ent = ctx.r3.u32;
+  __imp__sub_8704B750(ctx, base);
+  if (g_neutral.count(ent)) {
+    AdjustLinks(base, ent, -1);
   }
 }

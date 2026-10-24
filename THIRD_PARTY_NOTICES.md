@@ -1,19 +1,19 @@
 # Third-party notices
 
-NFSMW-NX is built on the work of other projects. Their licenses apply to their code and to the parts of this
+codclassic-nx is a fork of [nfsmw-nx](https://github.com/StevensND/nfsmw-nx) and is built on the work of other projects. Their licenses apply to their code and to the parts of this
 repository derived from it.
 
 ## Projects this port is derived from
 
 | Project | Used for | License |
 |---|---|---|
-| [NFSMW Recompiled](https://github.com/madelrandel-blip/NFSMW-Recompiled) by madelrandel-blip | The recompilation project this port started from: `app/` (hooks, configuration, codegen setup) and tools | GPL-3.0 |
+| [nfsmw-nx](https://github.com/StevensND/nfsmw-nx) by StevensND | The project this repository is forked from: the Horizon layer of `sdk/`, `mesa/`, the toolchain file, `docs/`. Its Need for Speed specific parts were removed | GPL-3.0 |
+| [NFSMW Recompiled](https://github.com/madelrandel-blip/NFSMW-Recompiled) by madelrandel-blip | The recompilation project nfsmw-nx started from (source of the GPL-3.0 license) | GPL-3.0 |
 | [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) by Tom Clay, with portions from [Xenia](https://xenia.jp) (Ben Vanik and the Xenia contributors) | `sdk/`: code generator, Xbox 360 kernel and runtime, GPU command processing | BSD-3-Clause (`sdk/LICENSE`) |
-| [XenosRecomp](https://github.com/hedge-dev/XenosRecomp) by hedge-dev and contributors | `shaders/XenosRecomp`: Xenos microcode to HLSL translator | MIT (`shaders/LICENSE.md`) |
 | [mesa-switch](https://github.com/danfromtico/mesa-switch) by danfromtico, on top of [Mesa](https://mesa3d.org) | The Vulkan driver (NVK) and shader compiler (NAK) for Horizon, linked into the NRO; `mesa/` holds the changes | MIT (Mesa's licenses per file) |
 
-The Horizon (Switch) layer added to `sdk/` is under the SDK's BSD-3-Clause license, and the changes in `shaders/`
-and `mesa/` under the licenses of those projects (MIT), so they can be reused by other ports. The rest of this
+The Horizon (Switch) layer added to `sdk/` is under the SDK's BSD-3-Clause license, and the changes in
+`mesa/` under Mesa's license (MIT), so they can be reused by other ports. The rest of this
 repository is GPL-3.0 (`LICENSE`).
 
 ## Libraries
@@ -45,7 +45,7 @@ Libraries used by the SDK, the NRO and the code generator, fetched from the subm
 This port modifies these files of the SDK's third-party tree; the modified copies are in `sdk/thirdparty`:
 
 - `FFmpeg/libavcodec/fft_template.c` and `FFmpeg/libavcodec/mdct_template.c`
-- `FFmpeg/config.h`, plus `FFmpeg/config_switch_aarch64.h` and `FFmpeg/config_nfsmw_wmv3.h` (new): the configuration
+- `FFmpeg/config.h`, plus `FFmpeg/config_switch_aarch64.h` and `FFmpeg/config_nfsmw_wmv3.h` (new, from nfsmw-nx): the configuration
   for AArch64 Horizon and for a build limited to the WMV3 decoder
 - `ffmpeg-overlay/codec_list.c`: registers the WMV3 decoder
 - `CMakeLists.txt`: builds the libraries for the Switch
@@ -54,14 +54,7 @@ The rest of FFmpeg and libmspack is the unmodified upstream source at the commit
 Everything needed to rebuild and relink the NRO with a modified version of either library is in this repository and
 in [docs/building.md](docs/building.md).
 
-## Installer page
-
-The [installer page](https://github.com/StevensND/nfsmw-nx-installer) runs WebAssembly builds of the shader translator
-and packer from `shaders/`, libmspack (LZX), and [DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler)
-v2025.1 (University of Illinois/NCSA Open Source License, with LLVM's license terms). Its own notices are in that
-repository.
-
 ## Trademarks
 
-Need for Speed and Need for Speed: Most Wanted are trademarks of Electronic Arts Inc. Nintendo Switch is a trademark of
+Call of Duty is a trademark of Activision Publishing, Inc. Need for Speed is a trademark of Electronic Arts Inc. Nintendo Switch is a trademark of
 Nintendo. Xbox 360 is a trademark of Microsoft. This project is not affiliated with or endorsed by any of them.

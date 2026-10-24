@@ -6,8 +6,15 @@ An unofficial, work-in-progress native Nintendo Switch port of the single-player
 It is not an emulator. The PowerPC code of the game's `default.xex` and its modules (`x360shared.xdl`,
 `game_sp.xdl`, `cgame_sp.xdl`, `ui_sp.xdl`) is statically recompiled to C++ with
 [ReXGlue](https://github.com/rexglue/rexglue-sdk) and compiled for the Switch, and the game is drawn through
-Vulkan on NVK (Mesa). The Switch runtime is the one from [nfsmw-nx](https://github.com/StevensND/nfsmw-nx) by
-StevensND, which this repository is a fork of.
+Vulkan on NVK (Mesa).
+
+> [!NOTE]
+> **This repository is a fork of [nfsmw-nx](https://github.com/StevensND/nfsmw-nx)**, StevensND's Nintendo Switch
+> port of Need for Speed: Most Wanted (Xbox 360). The Switch runtime (the Horizon layer of the ReXGlue SDK in
+> `sdk/`), the Mesa patch, the toolchain file and the documentation in `docs/` come from it, with the history of
+> its commits kept. Everything that belonged only to Need for Speed (its `app/`, shader tools, PGO profiles,
+> edition tools, installer notes and art) has been removed; the changes made for this port are in `sdk/` and
+> `codclassic/`.
 
 > [!IMPORTANT]
 > This repository contains **no files, code or assets from the game**, and no builds made from them. You need
@@ -30,9 +37,10 @@ StevensND, which this repository is a fork of.
 | `codclassic/app/` | The port: CMake project, ReXGlue manifest, function hints and gap lists, hooks and guards (`src/`) |
 | `codclassic/scripts/` | Codegen helpers: `post_codegen.py` (run after every codegen), gap tools, `stfs_extract.py` |
 | `codclassic/localization/` | Tools to build a Cyrillic font and a translated string pack from **your own** copy of the game; no translation text is included |
-| `sdk/` | ReXGlue SDK with the Horizon layer (from nfsmw-nx) and the changes this port needed |
-| `mesa/`, `tools/switch/` | The mesa-switch patch and the devkitA64 toolchain file (from nfsmw-nx) |
-| everything else | The Need for Speed: Most Wanted port this fork is based on, kept as is ([README.nfsmw-nx.md](README.nfsmw-nx.md)) |
+| `sdk/` | ReXGlue SDK with the Horizon layer from nfsmw-nx and the changes this port needed |
+| `mesa/` | The mesa-switch patch (from nfsmw-nx) |
+| `tools/` | `fetch_thirdparty.py` (the SDK's third-party sources) and the devkitA64 toolchain file |
+| `docs/` | Documentation from nfsmw-nx for the shared parts (toolchain, SDK, Mesa, profiler) |
 
 ## Building
 
